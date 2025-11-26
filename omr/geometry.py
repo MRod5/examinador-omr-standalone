@@ -38,19 +38,20 @@ def recortar_roi_rel(img_bgr, rect: RectRel):
 # QR en el bloque superior derecho
 # Estos valores son aproximados y los ajustaremos visualmente
 QR_AREA = RectRel(
-    x0=0.70,  # un poco a la derecha
-    y0=0.04,  # margen superior
-    x1=0.95,
-    y1=0.22
+    x0=0.79,
+    y0=0.03,
+    x1=0.94,
+    y1=0.15
 )
 
 # Zona total de la tabla de burbujas (las 60 preguntas)
 BUBBLES_AREA = RectRel(
-    x0=0.07,  # margen izquierda de la tabla
-    y0=0.28,  # más o menos donde empieza "Pregunta 1"
-    x1=0.93,  # margen derecha de la tabla
-    y1=0.88   # aproximadamente donde termina la fila 60
+    x0=0.065,
+    y0=0.22,
+    x1=0.935,
+    y1=0.82
 )
+
 
 # Dentro de BUBBLES_AREA, dos columnas de preguntas:
 LEFT_COL = RectRel(
