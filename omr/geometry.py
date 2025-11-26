@@ -1,31 +1,21 @@
-"""
-Módulo de utilidades geométricas para procesamiento de imágenes.
-"""
+# omr/geometry.py
 import cv2
 import numpy as np
 from dataclasses import dataclass
 
-# Tamaño "estándar" de trabajo (ancho, alto) en píxeles
-# No tiene por qué ser el tamaño real del PDF, es sólo un lienzo de trabajo fijo.
-A4_SIZE = (2480, 3508)
+# Tamaño de trabajo fijo (A4 vertical)
+A4_SIZE = (2480, 3508)  # (ancho, alto)
+
 
 @dataclass
 class RectRel:
-    """
-    Rectángulo en coordenadas relativas [0,1] respecto al ancho/alto de la imagen.
-    x0, y0 = esquina superior izquierda
-    x1, y1 = esquina inferior derecha
-    """
     x0: float
     y0: float
     x1: float
     y1: float
 
+
 def recortar_roi_rel(img_bgr, rect: RectRel):
-    """
-    Recorta un ROI de la imagen usando coordenadas relativas (0..1).
-    Devuelve (roi_bgr, (x, y, w, h)) en coordenadas absolutas.
-    """
     h, w = img_bgr.shape[:2]
     x0 = int(rect.x0 * w)
     y0 = int(rect.y0 * h)
@@ -33,10 +23,9 @@ def recortar_roi_rel(img_bgr, rect: RectRel):
     y1 = int(rect.y1 * h)
     return img_bgr[y0:y1, x0:x1], (x0, y0, x1 - x0, y1 - y0)
 
-# --- ROIs relativos en la hoja ya enderezada (A4_SIZE) ---
 
-# QR en el bloque superior derecho
-# Estos valores son aproximados y los ajustaremos visualmente
+# ---- ROIs (ajustaremos si hace falta, pero dejamos estos de momento) ----
+
 QR_AREA = RectRel(
     x0=0.79,
     y0=0.03,
@@ -44,7 +33,6 @@ QR_AREA = RectRel(
     y1=0.15
 )
 
-# Zona total de la tabla de burbujas (las 60 preguntas)
 BUBBLES_AREA = RectRel(
     x0=0.065,
     y0=0.22,
@@ -52,8 +40,6 @@ BUBBLES_AREA = RectRel(
     y1=0.82
 )
 
-
-# Dentro de BUBBLES_AREA, dos columnas de preguntas:
 LEFT_COL = RectRel(
     x0=0.00, y0=0.00,
     x1=0.48, y1=1.00
@@ -65,68 +51,64 @@ RIGHT_COL = RectRel(
 )
 
 
-
 def detectar_hoja_y_enderezar(img_bgr):
     """
-    Aquí está el core. El siguiente paso es pintar las esquinas.
-    Intenta detectar la hoja como el contorno grande con forma aproximada de
-    rectángulo A4. Si no lo consigue, hace fallback: escala toda la imagen a A4_SIZE.
+    1) Detecta el contorno de la hoja (la región blanca más grande).
+    2) Obtiene sus 4 esquinas.
+    3) Warpea a un A4 perfecto (A4_SIZE).
     """
+
     h_img, w_img = img_bgr.shape[:2]
     img_area = w_img * h_img
 
+    # --- 1. Escala de grises y suavizado ---
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Binarizamos antes de Canny para intentar resaltar mejor la hoja
-    _, thr = cv2.threshold(blur, 0, 255,
-                           cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    edges = cv2.Canny(thr, 50, 150)
+    # --- 2. Umbral global tipo Otsu: hoja blanca, fondo negro ---
+    _, thr = cv2.threshold(
+        blur, 0, 255,
+        cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
 
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST,
-                                   cv2.CHAIN_APPROX_SIMPLE)
+    # Si por lo que sea la hoja saliera negra y el fondo blanco, invertimos
+    # (comprobamos cuánta "tinta blanca" hay en los bordes).
+    border = np.concatenate([
+        thr[0, :], thr[-1, :], thr[:, 0], thr[:, -1]
+    ])
+    if border.mean() > 200:  # bordes muy blancos -> invertimos
+        thr = cv2.bitwise_not(thr)
+
+    # --- 3. Buscamos contornos EXTERNOS (la hoja) ---
+    contours, _ = cv2.findContours(
+        thr, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+
     if not contours:
-        # Fallback: redimensionar toda la imagen
-        print("No se han encontrado contornos.")
+        # Fallback: si algo va muy mal, reescalamos toda la imagen
         return cv2.resize(img_bgr, A4_SIZE)
 
-    best_cnt = None
-    best_score = -1.0
-    A4_RATIO = A4_SIZE[1] / A4_SIZE[0]  # alto/ancho ~ 1.41
+    # Contorno más grande -> asumimos que es la hoja
+    cnt = max(contours, key=cv2.contourArea)
+    area = cv2.contourArea(cnt)
 
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < 0.2 * img_area:  # ignorar cosas pequeñas (<20% de la imagen)
-            continue
+    if area < 0.3 * img_area:
+        # Si el mayor contorno es pequeño, algo va mal: usamos toda la imagen
+        return cv2.resize(img_bgr, A4_SIZE)
 
-        # Rectángulo mínimo que envuelve el contorno
+    # --- 4. Aproximamos a polígono y buscamos 4 puntos ---
+    peri = cv2.arcLength(cnt, True)
+    approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+
+    if len(approx) == 4:
+        pts = approx.reshape(4, 2).astype("float32")
+    else:
+        # Si no son exactamente 4, usamos el rectángulo mínimo
         rect = cv2.minAreaRect(cnt)
-        (cx, cy), (w, h), angle = rect
-        if w == 0 or h == 0:
-            continue
+        box = cv2.boxPoints(rect)
+        pts = np.array(box, dtype="float32")
 
-        ratio = max(w, h) / min(w, h)
-
-        # Queremos algo parecido a A4_RATIO, aunque no perfecto
-        ratio_score = 1.0 - min(abs(ratio - A4_RATIO), 1.0)  # 1 → perfecto, 0 → muy mal
-        area_score = area / img_area                           # 0..1 según lo grande que sea
-
-        score = ratio_score * 0.6 + area_score * 0.4
-
-        if score > best_score:
-            best_score = score
-            best_cnt = cnt
-
-    if best_cnt is None:
-        # Fallback: redimensionar toda la imagen
-        return cv2.resize(img_bgr, A4_SIZE)
-
-    # Obtenemos los 4 puntos del rectángulo mínimo
-    rect = cv2.minAreaRect(best_cnt)
-    box = cv2.boxPoints(rect)
-    pts = np.array(box, dtype="float32")
-
-    # Ordenamos los vértices como antes (top-left, top-right, bottom-right, bottom-left)
+    # --- 5. Ordenar puntos: TL, TR, BR, BL ---
     s = pts.sum(axis=1)
     diff = np.diff(pts, axis=1)
     ordered = np.zeros((4, 2), dtype="float32")
@@ -135,14 +117,16 @@ def detectar_hoja_y_enderezar(img_bgr):
     ordered[1] = pts[np.argmin(diff)]   # top-right
     ordered[3] = pts[np.argmax(diff)]   # bottom-left
 
-    w, h = A4_SIZE
+    # --- 6. Warp a A4_SIZE ---
+    w_dest, h_dest = A4_SIZE
     dst = np.array([
-        [0,     0],
-        [w - 1, 0],
-        [w - 1, h - 1],
-        [0,     h - 1]
+        [0,         0],
+        [w_dest-1,  0],
+        [w_dest-1,  h_dest-1],
+        [0,         h_dest-1]
     ], dtype="float32")
 
     M = cv2.getPerspectiveTransform(ordered, dst)
-    warped = cv2.warpPerspective(img_bgr, M, (w, h))
+    warped = cv2.warpPerspective(img_bgr, M, (w_dest, h_dest))
+
     return warped
