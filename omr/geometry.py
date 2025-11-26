@@ -33,6 +33,38 @@ def recortar_roi_rel(img_bgr, rect: RectRel):
     y1 = int(rect.y1 * h)
     return img_bgr[y0:y1, x0:x1], (x0, y0, x1 - x0, y1 - y0)
 
+# --- ROIs relativos en la hoja ya enderezada (A4_SIZE) ---
+
+# QR en el bloque superior derecho
+# Estos valores son aproximados y los ajustaremos visualmente
+QR_AREA = RectRel(
+    x0=0.70,  # un poco a la derecha
+    y0=0.04,  # margen superior
+    x1=0.95,
+    y1=0.22
+)
+
+# Zona total de la tabla de burbujas (las 60 preguntas)
+BUBBLES_AREA = RectRel(
+    x0=0.07,  # margen izquierda de la tabla
+    y0=0.28,  # más o menos donde empieza "Pregunta 1"
+    x1=0.93,  # margen derecha de la tabla
+    y1=0.88   # aproximadamente donde termina la fila 60
+)
+
+# Dentro de BUBBLES_AREA, dos columnas de preguntas:
+LEFT_COL = RectRel(
+    x0=0.00, y0=0.00,
+    x1=0.48, y1=1.00
+)
+
+RIGHT_COL = RectRel(
+    x0=0.52, y0=0.00,
+    x1=1.00, y1=1.00
+)
+
+
+
 def detectar_hoja_y_enderezar(img_bgr):
     """
     Aquí está el core. El siguiente paso es pintar las esquinas.
