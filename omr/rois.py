@@ -1,4 +1,4 @@
-
+# omr/rois.py
 """
 Definición de ROIs (Regiones de Interés) sobre la hoja enderezada test_case_A4.
 
@@ -6,6 +6,11 @@ Tarea A:
 - Definir un ROI aproximado donde vive el QR (QR_AREA).
 - Detectar el QR real dentro de ese ROI usando QRCodeDetector.
 - Devolver/dibujar una caja ajustada alrededor del QR real.
+
+Tarea C:
+- Definir la región global de burbujas (BUBBLES_AREA) que engloba
+  las preguntas 1–60 (dos columnas).
+- Función para dibujar esa caja sobre la hoja (depuración).
 """
 
 from dataclasses import dataclass
@@ -28,7 +33,7 @@ class RectRel:
 
 # === TAREA A: ROI aproximado del QR (macro ventana de búsqueda) =============
 
-# Estos valores son un ROI amplio donde con seguridad cae el QR.
+# Estos valores delimitan una zona amplia donde con seguridad cae el QR.
 # La caja fina se ajusta luego automáticamente con el detector de QR.
 QR_AREA = RectRel(
     x0=0.78,
@@ -168,8 +173,50 @@ def dibujar_qr_area(img):
     thickness = 3
     cv2.rectangle(img, (x0, y0), (x1, y1), color, thickness)
 
-    # Si quieres ver qué se ha leído del QR:
     if data:
         print("QR detectado:", data)
 
+    return img
+
+
+# === TAREA C: Caja global de burbujas (BUBBLES_AREA) ========================
+
+# Definimos un rectángulo relativo que englobe la tabla de preguntas 1–60.
+# Estos valores están ajustados a la geometría de la plantilla y a lo que
+# vemos en las capturas: la tabla ocupa aproximadamente el 6%–94% en ancho
+# y del 27% al 86% en alto, medido sobre la hoja enderezada.
+BUBBLES_AREA = RectRel(
+    x0=0.06,  # un poco a la derecha del borde izquierdo
+    y0=0.27,  # por debajo de la cabecera
+    x1=0.94,  # un poco a la izquierda del borde derecho
+    y1=0.86   # por encima del margen inferior
+)
+
+
+def dibujar_bubbles_area(img, color=(255, 0, 0), thickness=3):
+    """
+    Dibuja la caja global de burbujas (BUBBLES_AREA) sobre la hoja.
+
+    Parámetros
+    ----------
+    img : np.ndarray
+        Imagen BGR (test_case_A4).
+    color : tuple[int, int, int]
+        Color BGR del rectángulo (por defecto azul).
+    thickness : int
+        Grosor de la línea.
+
+    Devuelve
+    --------
+    img_out : np.ndarray
+        Imagen con el rectángulo dibujado (misma referencia que img).
+    """
+    h, w = img.shape[:2]
+
+    x0 = int(BUBBLES_AREA.x0 * w)
+    y0 = int(BUBBLES_AREA.y0 * h)
+    x1 = int(BUBBLES_AREA.x1 * w)
+    y1 = int(BUBBLES_AREA.y1 * h)
+
+    cv2.rectangle(img, (x0, y0), (x1, y1), color, thickness)
     return img
